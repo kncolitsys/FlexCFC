@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<settings>
+	<roots>
+		<root appname="dir1" dir="C:\cfusionmx7\wwwroot\dir1" rootDir="C:\cfusionmx7\wwwroot\"/>
+		<root appname="dir2" dir="C:\cfusionmx7\wwwroot\dir2" rootDir="C:\cfusionmx7\wwwroot\"/>
+	</roots>
+</settings>

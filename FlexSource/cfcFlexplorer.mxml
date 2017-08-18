@@ -1,0 +1,276 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mx:Application xmlns:mx="http://www.adobe.com/2006/mxml" layout="absolute"
+    creationComplete="initApp();">
+	<mx:Script>
+		<![CDATA[
+		import mx.controls.dataGridClasses.DataGridColumn;
+		import mx.collections.ArrayCollection;
+		import mx.collections.XMLListCollection;
+		import mx.rpc.events.ResultEvent;
+		import mx.controls.Alert;
+		import flash.net.navigateToURL;
+	    import flash.net.URLRequest;
+	    import flash.net.URLVariables;
+    	import mx.utils.ArrayUtil;
+    		    
+		private var loader:URLLoader;
+		
+		[Bindable]
+		private var treeInfo:XML;	
+		
+		[Bindable]
+		public var hasConstructor:Boolean;
+		private var rootDir:String;
+		private var startDir:String;
+		
+		public function getComURL(key:String):void {
+            var url:String = "/cfcFlexplorer/ColdFusion/invokeComponent.cfm";
+            var variables:URLVariables = new URLVariables();
+            variables.invokeKey = key;
+            var request:URLRequest = new URLRequest(url);
+            request.data = variables;
+            try {            
+                navigateToURL(request);
+            }
+            catch (e:Error) {
+                Alert.show('An Error Has Occurred.');
+            }
+        }
+        
+        public function printComponent(format:String):void {
+            var url:String = "/cfcFlexplorer/ColdFusion/printCfc.cfm";
+            var variables:URLVariables = new URLVariables();
+            variables.pathToCfc = dirTree.selectedItem.@componentPath;
+            variables.outputType = format;
+            var request:URLRequest = new URLRequest(url);
+            request.data = variables;
+            try {            
+                navigateToURL(request);
+            }
+            catch (e:Error) {
+                Alert.show('An Error Has Occurred.');
+            }
+        }
+		
+		private function initApp():void{
+		//load the xml settings 
+		loader = new URLLoader(new URLRequest("/cfcFlexplorer/XML/cfcdirinfo.xml"));
+		loader.addEventListener(Event.COMPLETE, handleEvent);
+		}
+		
+		private function loadTree(rootDir:String, startDir:String):void{
+		introspectSvc.getTree(rootDir,startDir);
+		}
+		
+		private function handleEvent(e:Event):void{
+			treeInfo = XML(URLLoader(e.target).data);
+		}
+
+		private function handleTreeResults(event:ResultEvent):void{
+		dirTree.dataProvider = event.result;
+		}
+
+  		
+		private function handleMethodGridResults(event:ResultEvent):void{
+		//populate the methodGrid
+		methodGrid.dataProvider = new ArrayCollection(event.result.FUNCTIONS);
+				   
+		//populate the Component Metadata
+		compDispName.text = event.result.DISPLAYNAME;
+		compHint.text = event.result.HINT;
+		compName.text = event.result.NAME;
+		compOutput.text = event.result.OUTPUT;
+		compPath.text = event.result.PATH;
+		compType.text = event.result.TYPE;
+		
+		//check for an init() method 
+			for(var i:Number=0; i<methodGrid.dataProvider.length; i++){
+				if(methodGrid.dataProvider.getItemAt(i).NAME.toLowerCase() == 'init'){
+				hasConstructor = true;
+				}
+			}
+		}
+		
+		private function getComponentInfo():void{
+		var path:String = dirTree.selectedItem.@componentPath; 
+		var paramGrid:DataGrid = paramGrid;
+			if(path.length){
+				if(paramGrid.dataProvider){
+				paramGrid.dataProvider.removeAll();
+				}	
+			//reset the constructor var 	
+			hasConstructor = false;	
+			//get the meta data
+			introspectSvc.getMeta(path);
+			}
+		}
+		private function invokeCom():void{
+		var pathToCfc:String = dirTree.selectedItem.@componentPath;  
+		var initRequired:Boolean = initFirst.selected;
+		var initParams:Array = new Array;
+		var methodToInvoke:String = methodGrid.selectedItem.NAME;
+		var parameters:Array = methodGrid.selectedItem.PARAMETERS;
+		
+			if(initRequired){
+				for(var i:Number=0; i<methodGrid.dataProvider.length; i++){
+					if(methodGrid.dataProvider.getItemAt(i).NAME.toLowerCase() == 'init'
+					&& methodGrid.dataProvider.getItemAt(i).PARAMETERS != undefined){
+					initParams = methodGrid.dataProvider.getItemAt(i).PARAMETERS
+					}
+				}
+			}	
+		introspectSvc.setInvokeParams(pathToCfc,initRequired,initParams,methodToInvoke,parameters);
+		}
+		private function handleInvokeResults(event:ResultEvent):void{
+		getComURL(event.result.toString());
+		}
+		private function filterMethodGrid():void{
+		methodGrid.dataProvider.filterFunction = searchGrid;
+        methodGrid.dataProvider.refresh();
+        }
+       
+		private function searchGrid(item:Object):Boolean{
+		var isMatch:Boolean = false;
+		var theCol:String = colToSearch.selectedItem.value;
+			if(item[theCol] != undefined){
+				if(item[theCol].toLowerCase().search(searchTerm.text.toLowerCase()) != -1){
+				isMatch = true;
+				}   
+			}
+        return isMatch;              
+        }
+      	private function clearSearch():void{
+      	methodGrid.dataProvider.filterFunction = null;
+		methodGrid.dataProvider.refresh();			               
+		searchTerm.text = '';
+      	}
+							
+		]]>
+	</mx:Script>	
+
+	<!-- ColdFusion CFC (via AMF) -->
+	<mx:RemoteObject id="introspectSvc" destination="ColdFusion" 
+		source="cfcFlexplorer.ColdFusion.com.cfcFlexplorerProxy" showBusyCursor="true">
+		<mx:method name="getTree" result="handleTreeResults(event)" 
+			fault="Alert.show(event.fault.message)"/>
+		<mx:method name="getMeta" result="handleMethodGridResults(event)" 
+			fault="Alert.show(event.fault.message)"/>
+		<mx:method name="setInvokeParams" result="handleInvokeResults(event);"
+			fault="Alert.show(event.fault.message)"/>
+		<mx:method name="dump"/>
+	</mx:RemoteObject>
+	
+	<mx:Panel width="100%" height="100%" title="cfcFlexplorer">
+		<mx:HBox height="100%" width="100%">
+			<mx:VBox width="30%" height="100%" paddingLeft="10" paddingTop="10" paddingRight="10" paddingBottom="10">
+				<mx:Panel height="100%" width="100%" title="Components">
+					<mx:Tree width="100%" height="50%" id="dirTree" labelField="@label" horizontalScrollPolicy="on" 
+					    change="getComponentInfo();" selectedIndex="0" 
+					    showRoot="false"
+					    dataProvider="{treeInfo}"/>
+					<mx:VBox width="100%" height="50%" verticalGap="-3" 
+						paddingLeft="5" paddingRight="5" paddingTop="5" paddingBottom="5" cornerRadius="5">
+						<mx:Label width="5%" text="Display Name: " fontWeight="bold"/>
+						<mx:Text width="95%" id="compDispName" text=""/>
+						<mx:Label width="5%" text="Hint: " fontWeight="bold"/>
+						<mx:Text width="95%" id="compHint" text=""/>
+						<mx:Label width="5%" text="Name: " fontWeight="bold"/>
+						<mx:Text width="95%" id="compName" text=""/>
+						<mx:Label width="5%" text="Output: " fontWeight="bold"/>
+						<mx:Text width="95%" id="compOutput" text=""/>
+						<mx:Label width="5%" text="Path: " fontWeight="bold"/>
+						<mx:Text width="95%" id="compPath" text=""/>
+						<mx:Label width="5%" text="Type: " fontWeight="bold"/>
+						<mx:Text width="95%" id="compType" text=""/>
+					</mx:VBox>
+				</mx:Panel> 
+			</mx:VBox>
+			<mx:VBox height="100%" width="70%" paddingRight="10" paddingTop="10">
+				<mx:Panel width="100%" height="50%" title="Methods">
+					<mx:HBox width="100%" verticalAlign="middle" paddingTop="10" 
+						paddingLeft="10" paddingRight="10">			
+						<mx:FormItem label="Search For:">
+							<mx:TextInput id="searchTerm" change="filterMethodGrid();"
+								enabled="{methodGrid.dataProvider.length == -1 ? false : true}"/>
+						</mx:FormItem>
+						
+						<mx:FormItem label="In:">
+							<mx:ComboBox id="colToSearch" change="clearSearch();">
+					           	<mx:Object label="Name" value="NAME"/>
+						       	<mx:Object label="Display Name" value="DISPLAYNAME"/>
+						       	<mx:Object label="Access" value="ACCESS"/>
+						       	<mx:Object label="Output" value="OUTPUT"/>
+						       	<mx:Object label="Return Type" value="RETURNTYPE"/>
+						       	<mx:Object label="Roles" value="ROLES"/>
+							</mx:ComboBox>
+						</mx:FormItem>
+						
+						<mx:Spacer width="100%"/>
+						<mx:Button id="toFpBtn" icon="@Embed(source='images/flashpaper.png')"
+							click="printComponent('flashpaper')" 
+							enabled="{(dirTree.selectedItem.@componentPath == undefined || 
+							dirTree.selectedIndex == -1) ? false : true}"/>	
+						<mx:Button id="toPdfBtn"
+							click="printComponent('pdf')" icon="@Embed(source='images/pdf.png')"
+							enabled="{(dirTree.selectedItem.@componentPath == undefined || 
+							dirTree.selectedIndex == -1) ? false : true}"/>
+					</mx:HBox>
+					
+					<mx:HBox width="100%" height="100%" paddingLeft="10" paddingRight="10" paddingBottom="0">
+						<mx:DataGrid id="methodGrid" width="100%" height="100%">
+							<mx:columns>
+								<mx:DataGridColumn headerText="Name" dataField="NAME"/>
+								<mx:DataGridColumn headerText="Display Name" dataField="DISPLAYNAME"/>
+								<mx:DataGridColumn headerText="Access" dataField="ACCESS"/>
+								<mx:DataGridColumn headerText="Output" dataField="OUTPUT"/>
+								<mx:DataGridColumn headerText="Return Type" dataField="RETURNTYPE"/>
+								<mx:DataGridColumn headerText="Roles" dataField="ROLES"/>
+							</mx:columns>
+						</mx:DataGrid>	
+					</mx:HBox>
+
+					<mx:HBox width="100%" paddingLeft="10" paddingRight="10" paddingBottom="0" horizontalGap="0">
+						<mx:Label width="5%" text="Hint: " fontWeight="bold"/>
+						<mx:Text width="95%" text="{methodGrid.selectedItem.HINT != undefined ? methodGrid.selectedItem.HINT : ''}"/>
+					</mx:HBox>
+					<mx:HBox width="100%" paddingLeft="10" paddingRight="10"
+						paddingBottom="10" horizontalGap="0">
+							<mx:Label width="5%" text="Description: " fontWeight="bold"/>
+							<mx:Text width="95%" text="{methodGrid.selectedItem.DESCRIPTION != undefined ? methodGrid.selectedItem.DESCRIPTION : ''}"/>	
+					</mx:HBox>
+				</mx:Panel>
+				<mx:Panel width="100%" height="46%" title="Parameters">
+					<mx:HBox width="100%" paddingLeft="10" paddingRight="10"
+						paddingTop="10">
+						<mx:DataGrid id="paramGrid" width="100%" height="95%" editable="true"
+							dataProvider="{methodGrid.selectedItem.PARAMETERS}">
+							<mx:columns>
+								<mx:DataGridColumn headerText="Name" dataField="NAME" editable="false"/>
+								<mx:DataGridColumn headerText="Display Name" dataField="DISPLAYNAME" editable="false"/>
+								<mx:DataGridColumn headerText="Required" dataField="REQUIRED" editable="false"/>
+								<mx:DataGridColumn headerText="Type" dataField="TYPE" editable="false"/>
+								<mx:DataGridColumn headerText="Default" dataField="DEFAULT" editable="false"/>
+								<mx:DataGridColumn headerText="Value" dataField="VALUE" editable="true"/>
+							</mx:columns>
+						</mx:DataGrid>	
+					</mx:HBox>
+				<mx:HBox height="2%" width="100%" paddingLeft="10" paddingRight="10">
+					<mx:Label text="Hint: " fontWeight="bold"/>
+					<mx:Text text="{paramGrid.selectedItem.HINT != undefined ? paramGrid.selectedItem.HINT : ''}"/>			
+				</mx:HBox>
+				</mx:Panel>
+				<mx:HBox height="5%" width="100%" horizontalAlign="right" verticalAlign="middle">				
+					<mx:CheckBox label="Init Component First" id="initFirst" height="100%"
+					enabled="{hasConstructor}" selected="{hasConstructor}"/>
+					<mx:Button label="Invoke Component" id="invokeBtn"
+					enabled="{(methodGrid.selectedIndex == -1 || methodGrid.selectedItem.ACCESS.toLowerCase() == 'private') ? false : true}"
+				    toolTip="{invokeBtn.enabled ? 'Invoke '+methodGrid.selectedItem.NAME : 'Please select a component.  You may not invoke components that are private.'}"
+					click="invokeCom();"/>				
+				</mx:HBox>
+
+			</mx:VBox>
+			
+		</mx:HBox>
+	</mx:Panel>
+</mx:Application>
+
